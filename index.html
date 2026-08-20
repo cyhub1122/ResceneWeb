@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>AI 模型聚合助手 · Kilo + Zen 免 Key 网关</title>
+<title>AI 模型聚合助手 · OpenRouter / Kilo / Zen</title>
 <style>
   :root{
     --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
@@ -97,10 +97,11 @@
 <header>
   <div class="top">
     <span class="brand"><span class="dot">●</span> AI 模型聚合助手</span>
-    <span class="badge">免 Key · 免费模型</span>
+    <span class="badge">OpenRouter 直连 · 免部署</span>
     <span class="spacer"></span>
     <div class="seg" id="providerSeg">
-      <button data-p="kilo" class="on">Kilo</button>
+      <button data-p="openrouter" class="on">OpenRouter</button>
+      <button data-p="kilo">Kilo</button>
       <button data-p="zen">Zen</button>
     </div>
   </div>
@@ -110,7 +111,7 @@
   <div id="chat">
     <div class="empty">
       选择一个模型，开始对话<br>
-      <span class="hint">Kilo / Zen 两个 OpenAI 兼容网关，免费模型无需 API Key 即可调用</span>
+      <span class="hint">OpenRouter 直连（推荐）· 免费注册 openrouter.ai 获取 Key 即可使用 | Kilo / Zen 需本地代理</span>
     </div>
   </div>
 </main>
@@ -143,6 +144,10 @@
     <label style="font-size:12.5px;color:var(--muted)">代理地址（代理模式下生效）</label>
     <input id="proxyBase" type="text" value="http://127.0.0.1:8000" style="width:100%;margin:6px 0 14px">
 
+    <label style="font-size:12.5px;color:var(--muted)">OpenRouter API Key（免费注册 openrouter.ai/keys，无需信用卡）</label>
+    <input id="openRouterKey" type="password" placeholder="sk-or-v1-…" style="width:100%;margin:6px 0 14px">
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">注册后获取 Key，免费模型每天 50 次调用。Key 仅保存在浏览器 localStorage。</div>
+
     <label style="font-size:12.5px;color:var(--muted)">Zen API Key（解锁 Claude/GPT/Gemini 等付费模型，留空则只用免费模型）</label>
     <input id="zenKey" type="password" placeholder="sk-…" style="width:100%;margin:6px 0 4px">
     <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Key 仅保存在本机浏览器 localStorage，不会上传到其它地方。</div>
@@ -164,6 +169,7 @@
 const UPSTREAM = {
   kilo: "https://api.kilo.ai/api/gateway/v1",
   zen:  "https://opencode.ai/zen/v1",
+  openrouter: "https://openrouter.ai/api/v1",
 };
 
 /* 离线兜底模型表（运行时优先从 /models 实时拉取完整目录） */
@@ -183,6 +189,22 @@ const FALLBACK_MODELS = {
     ["nvidia/nemotron-3.5-content-safety:free","NVIDIA · Nemotron 3.5 Content Safety (4B)",true],
     ["cohere/north-mini-code:free","Cohere · North Mini Code",true],
     ["openrouter/free","OpenRouter · 免费模型路由",true],
+  ],
+  openrouter: [
+    ["openrouter/free","OpenRouter · 免费自动路由（推荐）",true],
+    ["nvidia/nemotron-3-ultra-550b-a55b:free","NVIDIA · Nemotron 3 Ultra 550B（1M 上下文）",true],
+    ["poolside/laguna-m.1:free","Poolside · Laguna M.1（Agentic 编程）",true],
+    ["cohere/north-mini-code:free","Cohere · North Mini Code",true],
+    ["openai/gpt-oss-120b:free","OpenAI · GPT-OSS 120B",true],
+    ["poolside/laguna-s-2.1:free","Poolside · Laguna S 2.1",true],
+    ["poolside/laguna-xs-2.1:free","Poolside · Laguna XS 2.1",true],
+    ["google/gemma-4-31b-it:free","Google · Gemma 4 31B",true],
+    ["nvidia/nemotron-3-super-120b-a12b:free","NVIDIA · Nemotron 3 Super 120B",true],
+    ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free","NVIDIA · Nemotron 3 Nano Omni 30B",true],
+    ["nvidia/nemotron-3.5-lightning:free","NVIDIA · Nemotron 3.5 Lightning",true],
+    ["liquid/lfm-2.5-2.6b:free","LiquidAI · LFM2.5-2.6B",true],
+    ["dots-studio/dots-3-note-preview:free","Dots Studio · Dots3-Note",true],
+    ["stepfun/step-3.7-flash:free","StepFun · Step 3.7 Flash",true],
   ],
   zen: [
     ["deepseek-v4-flash-free","DeepSeek V4 Flash（推理）",true],
@@ -212,11 +234,11 @@ const FALLBACK_MODELS = {
 };
 
 /* ================= 状态 ================= */
-let provider = "kilo";
+let provider = "openrouter";
 let models = { kilo: [], zen: [] };        // [{id,name,free}]
 let selectedModel = "";
 let history = [];
-let settings = { mode:"direct", proxyBase:"http://127.0.0.1:8000", zenKey:"", maxTokens:4096 };
+let settings = { mode:"direct", proxyBase:"http://127.0.0.1:8000", zenKey:"", openRouterKey:"", maxTokens:4096 };
 let streaming = false;
 
 const $ = id => document.getElementById(id);
@@ -226,12 +248,14 @@ const chatEl = $("chat"), statusEl = $("status"), noticeEl = $("notice");
 function loadSettings(){
   try{ Object.assign(settings, JSON.parse(localStorage.getItem("rescene_settings")||"{}")); }catch(e){}
   $("proxyBase").value = settings.proxyBase;
+  $("openRouterKey").value = settings.openRouterKey;
   $("zenKey").value = settings.zenKey;
   $("maxTokens").value = settings.maxTokens;
   applyModeUI();
 }
 function saveSettings(){
   settings.proxyBase = $("proxyBase").value.trim();
+  settings.openRouterKey = $("openRouterKey").value.trim();
   settings.zenKey = $("zenKey").value.trim();
   settings.maxTokens = parseInt($("maxTokens").value)||4096;
   localStorage.setItem("rescene_settings", JSON.stringify(settings));
@@ -294,7 +318,7 @@ function fillSelect(){
 
 async function refreshModels(){
   setStatus("正在拉取模型列表…");
-  const jobs = ["kilo","zen"].map(async p=>{
+  const jobs = ["kilo","zen","openrouter"].map(async p=>{
     try{
       const r = await backend("GET", p, "/models");
       if(!r.ok) throw new Error(p+" HTTP "+r.status);
@@ -311,8 +335,8 @@ async function refreshModels(){
   });
   await Promise.all(jobs);
   fillSelect();
-  const tot = models.kilo.length + models.zen.length;
-  const free = models.kilo.filter(m=>m.free).length + models.zen.filter(m=>m.free).length;
+  const tot = models.kilo.length + models.zen.length + models.openrouter.length;
+  const free = models.kilo.filter(m=>m.free).length + models.zen.filter(m=>m.free).length + models.openrouter.filter(m=>m.free).length;
   setStatus(`模型已就绪：共 ${tot} 个（免费 ${free} 个）`);
   hideNotice();
 }
@@ -354,6 +378,10 @@ async function send(){
   const q = input.value.trim();
   if(!q) return;
   if(!selectedModel){ showNotice("请先选择一个模型"); return; }
+  if(provider==="openrouter" && !settings.openRouterKey){
+    showNotice("使用 OpenRouter 需要 API Key：<b>免费注册 openrouter.ai → Keys → Create Key</b>，然后点「⚙ 设置」填入即可。免费模型无需信用卡。");
+    return;
+  }
 
   addMsg("user").bubble.textContent = q;
   input.value = "";
@@ -363,6 +391,11 @@ async function send(){
   bubble.innerHTML = '<span class="cursor"></span>';
 
   const headers = {"Content-Type":"application/json"};
+  if(provider==="openrouter"){
+    if(settings.openRouterKey) headers["Authorization"] = "Bearer " + settings.openRouterKey;
+    headers["HTTP-Referer"] = "https://cyhub1122.github.io/ResceneWeb/";
+    headers["X-Title"] = "ResceneWeb";
+  }
   if(provider==="zen" && settings.zenKey) headers["Authorization"] = "Bearer " + settings.zenKey;
 
   const body = {
@@ -396,7 +429,7 @@ async function send(){
       let msg = "请求失败："+resp.status;
       try{ const e = await resp.json(); msg = e?.error?.message || e?.message || msg; }catch(_){}
       // CORS 提示
-      if(resp.status===0 || resp.type==="cors") msg = "跨域(CORS)被拦截，请在设置里切换为「本地代理」并启动 server.py";
+      if(resp.status===0 || resp.type==="cors") msg = "跨域(CORS)被拦截，请切换到 OpenRouter（直连可用）或启动本地代理";
       throw new Error(msg);
     }
 
@@ -460,7 +493,7 @@ async function send(){
   }finally{
     streaming = false;
     $("send").disabled = false;
-    setStatus(`模型已就绪（${models.kilo.length+models.zen.length} 个）`);
+    setStatus(`模型已就绪（${models.kilo.length+models.zen.length+models.openrouter.length} 个）`);
     input.focus();
   }
 }
@@ -493,7 +526,11 @@ $("model").addEventListener("change", e=>{ selectedModel = e.target.value; });
   loadSettings();
   models.kilo = fallbackToModels("kilo");
   models.zen = fallbackToModels("zen");
+  models.openrouter = fallbackToModels("openrouter");
   fillSelect();
+  if(provider==="openrouter" && !settings.openRouterKey){
+    setStatus("OpenRouter 未配置 Key · 点 ⚙ 设置填入（免费注册 openrouter.ai）");
+  }
   refreshModels();      // 尝试实时刷新全量目录
 })();
 </script>

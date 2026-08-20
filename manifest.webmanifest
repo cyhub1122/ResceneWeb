@@ -1,0 +1,12 @@
+{
+  "name": "Rescene 模型聚合助手",
+  "short_name": "Rescene",
+  "description": "AI 模型聚合助手 · Kilo + Zen 免 Key 网关",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "lang": "zh-CN"
+}
